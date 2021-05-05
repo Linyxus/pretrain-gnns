@@ -24,7 +24,7 @@ class GINConv(MessagePassing):
     See https://arxiv.org/abs/1810.00826
     """
     def __init__(self, emb_dim, aggr = "add"):
-        super(GINConv, self).__init__()
+        super(GINConv, self).__init__(aggr=aggr)
         #multi-layer perceptron
         self.mlp = torch.nn.Sequential(torch.nn.Linear(emb_dim, 2*emb_dim), torch.nn.ReLU(), torch.nn.Linear(2*emb_dim, emb_dim))
         self.edge_embedding1 = torch.nn.Embedding(num_bond_type, emb_dim)
@@ -36,7 +36,7 @@ class GINConv(MessagePassing):
 
     def forward(self, x, edge_index, edge_attr):
         #add self loops in the edge space
-        edge_index = add_self_loops(edge_index, num_nodes = x.size(0))
+        edge_index = add_self_loops(edge_index, num_nodes = x.size(0))[0]
 
         #add features corresponding to self-loop edges.
         self_loop_attr = torch.zeros(x.size(0), 2)
@@ -46,7 +46,7 @@ class GINConv(MessagePassing):
 
         edge_embeddings = self.edge_embedding1(edge_attr[:,0]) + self.edge_embedding2(edge_attr[:,1])
 
-        return self.propagate(self.aggr, edge_index, x=x, edge_attr=edge_embeddings)
+        return self.propagate(edge_index, x=x, edge_attr=edge_embeddings)
 
     def message(self, x_j, edge_attr):
         return x_j + edge_attr

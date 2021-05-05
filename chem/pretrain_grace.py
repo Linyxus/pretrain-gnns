@@ -4,6 +4,7 @@ from loader import MoleculeDataset
 from torch_geometric.data import DataLoader
 from torch_geometric.nn.inits import uniform
 from torch_geometric.nn import global_mean_pool
+from torch_geometric.utils import dropout_adj
 
 import torch
 import torch.nn as nn
@@ -41,45 +42,85 @@ class Discriminator(nn.Module):
         h = torch.matmul(summary, self.weight)
         return torch.sum(x*h, dim = 1)
 
-class Infomax(nn.Module):
-    def __init__(self, gnn, discriminator):
-        super(Infomax, self).__init__()
+class GRACE(nn.Module):
+    def __init__(self, gnn, mlp):
+        super(GRACE, self).__init__()
         self.gnn = gnn
-        self.discriminator = discriminator
-        self.loss = nn.BCEWithLogitsLoss()
-        self.pool = global_mean_pool
+        self.mlp = mlp
+
+
+def drop_feature(x: torch.Tensor, drop_prob: float) -> torch.Tensor:
+    device = x.device
+    drop_mask = torch.empty((x.size(1),), dtype=torch.float32).uniform_(0, 1) < drop_prob
+    drop_mask = drop_mask.to(device)
+    x = x.clone()
+    x[:, drop_mask] = 0
+
+    return x
+
+
+def drop_edge(edge_index: torch.LongTensor, edge_attr: torch.LongTensor, drop_prob: float = 0.2):
+    return dropout_adj(edge_index, edge_attr, p=drop_prob)
+
+
+def nt_xent_loss(z1: torch.Tensor, z2: torch.Tensor,
+                 batch_size: int, temperature: float):
+    def _similarity(z1: torch.Tensor, z2: torch.Tensor):
+        z1 = F.normalize(z1)
+        z2 = F.normalize(z2)
+        return z1 @ z2.t()
+    # Space complexity: O(BN) (semi_loss: O(N^2))
+    device = z1.device
+    num_nodes = z1.size(0)
+    num_batches = (num_nodes - 1) // batch_size + 1
+    f = lambda x: torch.exp(x / temperature)
+    indices = torch.arange(0, num_nodes).to(device)
+    losses = []
+
+    for i in range(num_batches):
+        batch_mask = indices[i * batch_size: (i + 1) * batch_size]
+        intra_similarity = f(_similarity(z1[batch_mask], z1))  # [B, N]
+        inter_similarity = f(_similarity(z1[batch_mask], z2))  # [B, N]
+
+        positives = inter_similarity[:, batch_mask].diag()
+        negatives = intra_similarity.sum(dim=1) + inter_similarity.sum(dim=1) \
+                    - intra_similarity[:, batch_mask].diag()
+
+        losses.append(-torch.log(positives / negatives))
+
+    return torch.cat(losses)
 
 
 def train(args, model, device, loader, optimizer):
     model.train()
 
-    train_acc_accum = 0
     train_loss_accum = 0
 
     for step, batch in enumerate(tqdm(loader, desc="Iteration")):
-        batch = batch.to(device)
-        node_emb = model.gnn(batch.x, batch.edge_index, batch.edge_attr)
-        summary_emb = torch.sigmoid(model.pool(node_emb, batch.batch))
-
-        positive_expanded_summary_emb = summary_emb[batch.batch]
-
-        shifted_summary_emb = summary_emb[cycle_index(len(summary_emb), 1)]
-        negative_expanded_summary_emb = shifted_summary_emb[batch.batch]
-
-        positive_score = model.discriminator(node_emb, positive_expanded_summary_emb)
-        negative_score = model.discriminator(node_emb, negative_expanded_summary_emb)      
-
         optimizer.zero_grad()
-        loss = model.loss(positive_score, torch.ones_like(positive_score)) + model.loss(negative_score, torch.zeros_like(negative_score))
+        batch = batch.to(device)
+        edge_index1, edge_attr1 = drop_edge(batch.edge_index, batch.edge_attr, drop_prob=0.2)
+        x1 = drop_feature(batch.x, drop_prob=0.2)
+        node_emb1 = model.gnn(x1, edge_index1, edge_attr1)
+
+        edge_index2, edge_attr2 = drop_edge(batch.edge_index, batch.edge_attr, drop_prob=0.2)
+        x2 = drop_feature(batch.x, drop_prob=0.2)
+        node_emb2 = model.gnn(x2, edge_index2, edge_attr2)
+
+        z1 = model.mlp(node_emb1)
+        z2 = model.mlp(node_emb2)
+
+        loss1 = nt_xent_loss(z1, z2, batch_size=1024, temperature=0.1)
+        loss2 = nt_xent_loss(z2, z1, batch_size=1024, temperature=0.1)
+        loss = (loss1.mean() + loss2.mean()) / 2.0
+
         loss.backward()
 
         optimizer.step()
 
         train_loss_accum += float(loss.detach().cpu().item())
-        acc = (torch.sum(positive_score > 0) + torch.sum(negative_score < 0)).to(torch.float32)/float(2*len(positive_score))
-        train_acc_accum += float(acc.detach().cpu().item())
 
-    return train_acc_accum/step, train_loss_accum/step
+    return train_loss_accum/step
 
 
 def main():
@@ -128,9 +169,10 @@ def main():
     #set up model
     gnn = GNN(args.num_layer, args.emb_dim, JK = args.JK, drop_ratio = args.dropout_ratio, gnn_type = args.gnn_type)
 
-    discriminator = Discriminator(args.emb_dim)
+    mlp = torch.nn.Sequential(torch.nn.Linear(args.emb_dim, 2 * args.emb_dim), torch.nn.BatchNorm1d(2 * args.emb_dim),
+                              torch.nn.ELU(), torch.nn.Linear(2 * args.emb_dim, args.emb_dim))
 
-    model = Infomax(gnn, discriminator)
+    model = GRACE(gnn, mlp)
     
     model.to(device)
 
