@@ -45,7 +45,7 @@ class BatchFinetune(Data):
 
         for key in keys:
             batch[key] = torch.cat(
-                batch[key], dim=data_list[0].cat_dim(key, batch[key][0]))
+                batch[key], dim=data_list[0].__cat_dim__(key, batch[key][0]))
         batch.batch = torch.cat(batch.batch, dim=-1)
         return batch.contiguous()
 
@@ -101,7 +101,7 @@ class BatchMasking(Data):
 
         for key in keys:
             batch[key] = torch.cat(
-                batch[key], dim=data_list[0].cat_dim(key, batch[key][0]))
+                batch[key], dim=data_list[0].__cat_dim__(key, batch[key][0]))
         batch.batch = torch.cat(batch.batch, dim=-1)
         return batch.contiguous()
 
