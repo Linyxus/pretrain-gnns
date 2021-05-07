@@ -4,15 +4,15 @@ device=$2
 split=species
 
 ### for GIN
-for unsup in contextpred infomax edgepred masking
+for unsup in contextpred infomax grace edgepred masking
 do
   echo 'unsupervised' ${unsup}
   model_file=${unsup}
   python finetune.py --model_file model_gin/${model_file}.pth --split $split --filename gin_${model_file} --epochs 50 --device $device --runseed $runseed --gnn_type gin
 
-  echo 'supervised' ${unsup}
-  model_file=supervised_${unsup}
-  python finetune.py --model_file model_gin/${model_file}.pth --split $split --filename gin_${model_file} --epochs 50 --device $device --runseed $runseed --gnn_type gin
+#  echo 'supervised' ${unsup}
+#  model_file=supervised_${unsup}
+#  python finetune.py --model_file model_gin/${model_file}.pth --split $split --filename gin_${model_file} --epochs 50 --device $device --runseed $runseed --gnn_type gin
 done
 
 #python finetune.py --split $split --filename gin_nopretrain --epochs 50 --device $device --runseed $runseed --gnn_type gin

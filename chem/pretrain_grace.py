@@ -183,9 +183,8 @@ def main():
     for epoch in range(1, args.epochs+1):
         print("====epoch " + str(epoch))
     
-        train_acc, train_loss = train(args, model, device, loader, optimizer)
+        train_loss = train(args, model, device, loader, optimizer)
 
-        print(train_acc)
         print(train_loss)
 
 
