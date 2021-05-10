@@ -169,8 +169,8 @@ def main():
     #set up model
     gnn = GNN(args.num_layer, args.emb_dim, JK = args.JK, drop_ratio = args.dropout_ratio, gnn_type = args.gnn_type)
 
-    mlp = torch.nn.Sequential(torch.nn.Linear(args.emb_dim, 2 * args.emb_dim), torch.nn.BatchNorm1d(2 * args.emb_dim),
-                              torch.nn.ELU(), torch.nn.Linear(2 * args.emb_dim, args.emb_dim))
+    mlp = torch.nn.Sequential(torch.nn.Linear(args.emb_dim, args.emb_dim),
+                              torch.nn.ReLU(), torch.nn.Linear(args.emb_dim, args.emb_dim))
 
     model = GRACE(gnn, mlp)
     
@@ -186,6 +186,10 @@ def main():
         train_loss = train(args, model, device, loader, optimizer)
 
         print(train_loss)
+
+        if not args.output_model_file == "":
+            if epoch % 20 == 0:
+                torch.save(gnn.state_dict(), args.output_model_file + f"_{epoch}.pth")
 
 
     if not args.output_model_file == "":

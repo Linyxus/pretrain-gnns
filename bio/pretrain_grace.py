@@ -4,6 +4,7 @@ from loader import BioDataset
 from torch_geometric.data import DataLoader
 from torch_geometric.utils import dropout_adj
 from torch_geometric.nn.inits import uniform
+from torch_geometric.nn import global_mean_pool
 
 import torch
 import torch.nn as nn
@@ -84,6 +85,7 @@ class GRACE(nn.Module):
         super(GRACE, self).__init__()
         self.gnn = gnn
         self.mlp = mlp
+        self.pool = global_mean_pool
 
 
 def train(args, model, device, loader, optimizer):
@@ -163,8 +165,7 @@ def main():
     #set up model
     gnn = GNN(args.num_layer, args.emb_dim, JK = args.JK, drop_ratio = args.dropout_ratio, gnn_type = args.gnn_type)
 
-    mlp = torch.nn.Sequential(torch.nn.Linear(args.emb_dim, 2 * args.emb_dim), torch.nn.BatchNorm1d(2 * args.emb_dim),
-                                   torch.nn.ELU(), torch.nn.Linear(2 * args.emb_dim, args.emb_dim))
+    mlp = torch.nn.Sequential(torch.nn.Linear(args.emb_dim, args.emb_dim), torch.nn.ReLU(), torch.nn.Linear(args.emb_dim, args.emb_dim))
 
     model = GRACE(gnn, mlp)
     
@@ -181,6 +182,10 @@ def main():
         train_loss = train(args, model, device, loader, optimizer)
 
         print(train_loss)
+
+        if epoch % 20 == 0:
+            if not args.model_file == "":
+                torch.save(model.gnn.state_dict(), f'{args.model_file}_{epoch}.pth')
 
 
     if not args.model_file == "":

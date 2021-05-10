@@ -3,11 +3,13 @@ import tensorflow as tf
 import os
 import numpy as np
 import pickle
+from tabulate import tabulate
+import torch
 
 def get_test_acc(event_file):
     val_auc_list = np.zeros(100)
     test_auc_list = np.zeros(100)
-    for e in list(tf.train.summary_iterator(event_file)):
+    for e in list(tf.compat.v1.train.summary_iterator(event_file)):
         if len(e.summary.value) == 0:
             continue
         if e.summary.value[0].tag == "data/val_auc":
@@ -26,22 +28,23 @@ if __name__ == "__main__":
     seed_list = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     config_list = []
 
-    config_list.append("gin_nopretrain")
+    # config_list.append("gin_nopretrain")
+    config_list.append("gin_grace")
     config_list.append("gin_infomax")
     config_list.append("gin_edgepred")
     config_list.append("gin_masking")
     config_list.append("gin_contextpred")
-    config_list.append("gin_supervised")
-    config_list.append("gin_supervised_infomax")
-    config_list.append("gin_supervised_edgepred")
-    config_list.append("gin_supervised_masking")
-    config_list.append("gin_supervised_contextpred")
-    config_list.append("gcn_nopretrain")
-    config_list.append("gcn_supervised_contextpred")
-    config_list.append("graphsage_nopretrain")
-    config_list.append("graphsage_supervised_contextpred")
-    config_list.append("gat_nopretrain")
-    config_list.append("gat_supervised_contextpred")
+    # config_list.append("gin_supervised")
+    # config_list.append("gin_supervised_infomax")
+    # config_list.append("gin_supervised_edgepred")
+    # config_list.append("gin_supervised_masking")
+    # config_list.append("gin_supervised_contextpred")
+    # config_list.append("gcn_nopretrain")
+    # config_list.append("gcn_supervised_contextpred")
+    # config_list.append("graphsage_nopretrain")
+    # config_list.append("graphsage_supervised_contextpred")
+    # config_list.append("gat_nopretrain")
+    # config_list.append("gat_supervised_contextpred")
 
     result_mat = np.zeros((len(seed_list), len(config_list), len(dataset_list)))
 
@@ -61,13 +64,17 @@ if __name__ == "__main__":
                 result_mat[i, j, k] = get_test_acc(dir_name + "/" + event_file)
 
     with open("result_summary", "wb") as f:
-        pickle.dump({"result_mat": result_mat, "seed_list": seed_list, "config_list": config_list, "dataset_list": dataset_list}, f)
-
-
-
-
-
-
-
-
-
+        # result mat shape: [# seed, # method, # dataset]
+        res = {"result_mat": result_mat, "seed_list": seed_list, "config_list": config_list, "dataset_list": dataset_list}
+        print(res)
+        def show_table():
+            rows = []
+            for i, model in enumerate(config_list):
+                results = torch.from_numpy(result_mat[:, i, :])
+                mean = results.mean(dim=0).tolist()
+                std = results.std(dim=0).tolist()
+                results = [f'{m:.4f} +- {d:.4f}' for m, d in zip(mean, std)]
+                rows.append([model] + results)
+            print(tabulate(rows, headers=['Model'] + dataset_list))
+        show_table()
+        pickle.dump(res, f)
